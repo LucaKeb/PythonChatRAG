@@ -37,8 +37,10 @@ def criar_indice_vetorial(documentos, model):
     embeddings_np = np.array(result['embedding']).astype('float32')
     
     # Cria um índice FAISS, que é um banco de dados vetorial em memória
+    faiss.normalize_L2(embeddings_np)
+
     d = embeddings_np.shape[1]  # Dimensão dos vetores
-    index = faiss.IndexFlatL2(d)  # Usando distância L2 (similar à similaridade de cosseno para vetores normalizados)
+    index = faiss.IndexFlatIP(d)   # IP = Inner Product
     index.add(embeddings_np)
     
     print("Índice vetorial criado com sucesso.")
@@ -53,6 +55,8 @@ def recuperar_contexto_com_embedding(query, index, model, textos_base, top_k=1):
     # 1. Gera o embedding para a pergunta do usuário
     query_embedding_result = genai.embed_content(model=model, content=query)
     query_vector = np.array(query_embedding_result['embedding']).astype('float32').reshape(1, -1)
+
+    faiss.normalize_L2(query_vector)
 
     # 2. Busca no índice FAISS pelos vetores mais próximos (mais similares)
     # D: Distâncias, I: Índices dos vetores encontrados
