@@ -51,22 +51,27 @@ indice_faiss, textos_originais = criar_indice_vetorial(documentos, embedding_mod
 
 
 # --- 4. FUNÇÃO DE RECUPERAÇÃO (RETRIEVAL) COM EMBEDDINGS ---
-def recuperar_contexto_com_embedding(query, index, model, textos_base, top_k=1):
+def recuperar_contexto_com_embedding(query: str,
+                                     index: faiss.IndexFlatIP,
+                                     model: str, 
+                                     textos_base: list, 
+                                     top_k: int = 3) -> list[str]:
     # 1. Gera o embedding para a pergunta do usuário
-    query_embedding_result = genai.embed_content(model=model, content=query)
-    query_vector = np.array(query_embedding_result['embedding']).astype('float32').reshape(1, -1)
-
-    faiss.normalize_L2(query_vector)
+    query_res = genai.embed_content(model=model, content=query)
+    query_vec = np.array(query_res['embedding']).astype('float32').reshape(1, -1)
+    faiss.normalize_L2(query_vec)
 
     # 2. Busca no índice FAISS pelos vetores mais próximos (mais similares)
-    # D: Distâncias, I: Índices dos vetores encontrados
-    distancias, indices = index.search(query_vector, top_k)
+    # scores: Distâncias, I: Índices dos vetores encontrados
+    scores, indices = index.search(query_vec, top_k)
     
-    # 3. Retorna o texto original correspondente ao vetor mais próximo encontrado
-    if len(indices[0]) > 0:
-        indice_encontrado = indices[0][0]
-        return textos_base[indice_encontrado]
-    return None
+    # 3. Retorna o texto original correspondente aos vetores mais próximos encontrados
+    resultados = []
+    for idx in indices[0]:
+        if idx != -1:  # Verifica se o índice é válido
+            resultados.append(textos_base[idx])
+
+    return resultados
 
 def chatbot_com_ia():
     print("Olá! Eu sou um chatbot com IA e RAG baseado em embeddings.")
@@ -80,17 +85,18 @@ def chatbot_com_ia():
             break
 
         if entrada_usuario:
-            # Substituímos a busca por palavra-chave pela busca por embedding
-            contexto = recuperar_contexto_com_embedding(entrada_usuario, indice_faiss, embedding_model, textos_originais)
+            contextos = recuperar_contexto_com_embedding(entrada_usuario, indice_faiss, embedding_model, textos_originais)
             
             prompt_final = entrada_usuario
 
-            if contexto:
+            if contextos:
                 print("--- [Contexto recuperado por similaridade semântica. Usando RAG] ---")
+                contexto_unido = "\n\n---\n\n".join(contextos)
+
                 prompt_final = (
                     f"Com base estritamente no contexto fornecido, responda à pergunta do usuário.\n"
                     f"Se a resposta não estiver clara no contexto, diga 'Não tenho informações sobre isso no meu conhecimento'.\n\n"
-                    f"Contexto: '{contexto}'\n\n"
+                    f"Contextos: '{contexto_unido}'\n\n"
                     f"Pergunta: '{entrada_usuario}'"
                 )
 
