@@ -1,110 +1,110 @@
-import google.generativeai as genai
 import os
+import streamlit as st
+import google.generativeai as genai
 import numpy as np
-import faiss  # Biblioteca para busca de similaridade
+import faiss
+from dotenv import load_dotenv
 
-# --- 1. CONFIGURAÇÃO INICIAL E MODELO DE EMBEDDING ---
-try:
-    genai.configure(api_key='AIzaSyAXd4FGz6RxCyFg-phb5P65f0cCcTnm9Lk')
-except Exception as e:
-    print(f"Erro ao configurar a API: {e}")
-    exit()
+st.set_page_config(page_title="Chatbot IA com RAG", layout="wide")
 
-# Modelos a serem usados
-embedding_model = 'text-embedding-004'
-llm_model = genai.GenerativeModel('gemini-1.5-flash')
+# ------------------------------------------------------------------
+# Configuração da API do Google GenAI
+# ------------------------------------------------------------------
+load_dotenv()
 
-# --- 2. BASE DE CONHECIMENTO (CONTEÚDO ORIGINAL) ---
-# Mantemos os textos originais separados
-documentos = {
-    "doc1": "O Produto A é uma ferramenta de software de última geração para análise de dados. Ele utiliza algoritmos de machine learning para prever tendências de mercado. Custa R$500 por mês e oferece suporte prioritário 24/7.",
-    "doc2": "O Produto B é um serviço de armazenamento em nuvem com 1TB de espaço. A segurança é garantida com criptografia de ponta a ponta. O preço é R$50 por mês.",
-    "doc3": "Nossa empresa, a 'Soluções Tech', foi fundada em 2010. Somos líderes no mercado de inovação tecnológica e temos escritórios em São Paulo e no Rio de Janeiro."
-}
+api_key = os.getenv("GENAI_API_KEY")
+if not api_key:
+    st.error("Variável de ambiente GENAI_API_KEY não definida. Defina sua API key.")
+    st.stop()
+genai.configure(api_key=api_key)
 
-# --- 3. INDEXAÇÃO: GERAR EMBEDDINGS E CRIAR O ÍNDICE VETORIAL ---
-# Esta parte é executada uma vez para preparar a base de conhecimento
-def criar_indice_vetorial(documentos, model):
-    print("Gerando embeddings para a base de conhecimento...")
-    
-    # Extrai o conteúdo de texto dos documentos
-    textos_dos_documentos = list(documentos.values())
-    
-    # Gera os embeddings para todos os textos de uma vez
-    result = genai.embed_content(model=model, content=textos_dos_documentos)
-    
-    # Converte os embeddings para um array numpy
-    embeddings_np = np.array(result['embedding']).astype('float32')
-    
-    # Cria um índice FAISS, que é um banco de dados vetorial em memória
-    faiss.normalize_L2(embeddings_np)
+# ------------------------------------------------------------------
+# Modelos
+# ------------------------------------------------------------------
+EMBED_MODEL = 'text-embedding-004'
+LLM_MODEL = genai.GenerativeModel('gemini-1.5-flash')
 
-    d = embeddings_np.shape[1]  # Dimensão dos vetores
-    index = faiss.IndexFlatIP(d)   # IP = Inner Product
-    index.add(embeddings_np)
-    
-    print("Índice vetorial criado com sucesso.")
-    return index, textos_dos_documentos
+# ------------------------------------------------------------------
+# Carregamento e criação do índice FAISS (cache para performance)
+# ------------------------------------------------------------------
+@st.cache_resource
+def load_faiss_index():
+    # Base de documentos (pode externalizar em arquivo JSON ou DB)
+    documentos = {
+        "doc1": "O Produto A é uma ferramenta de software de última geração para análise de dados. Ele utiliza algoritmos de machine learning para prever tendências de mercado. Custa R$500 por mês e oferece suporte prioritário 24/7.",
+        "doc2": "O Produto B é um serviço de armazenamento em nuvem com 1TB de espaço. A segurança é garantida com criptografia de ponta a ponta. O preço é R$50 por mês.",
+        "doc3": "Nossa empresa, a 'Soluções Tech', foi fundada em 2010. Somos líderes no mercado de inovação tecnológica e temos escritórios em São Paulo e no Rio de Janeiro."
+    }
+    textos = list(documentos.values())
+    # Gera embeddings
+    res = genai.embed_content(model=EMBED_MODEL, content=textos)
+    embeddings = np.array(res['embedding'], dtype='float32')
+    # Normaliza para calcular similaridade de cosseno
+    faiss.normalize_L2(embeddings)
+    # Cria índice Inner Product
+    d = embeddings.shape[1]
+    index = faiss.IndexFlatIP(d)
+    index.add(embeddings)
+    return index, textos
 
-# Criando o índice ao iniciar o programa
-indice_faiss, textos_originais = criar_indice_vetorial(documentos, embedding_model)
+index, textos_base = load_faiss_index()
 
+# ------------------------------------------------------------------
+# Cabeçalho da interface
+# ------------------------------------------------------------------
+st.title("🤖 Chatbot IA com Streamlit e RAG")
 
-# --- 4. FUNÇÃO DE RECUPERAÇÃO (RETRIEVAL) COM EMBEDDINGS ---
-def recuperar_contexto_com_embedding(query: str,
-                                     index: faiss.IndexFlatIP,
-                                     model: str, 
-                                     textos_base: list, 
-                                     top_k: int = 3) -> list[str]:
-    # 1. Gera o embedding para a pergunta do usuário
-    query_res = genai.embed_content(model=model, content=query)
-    query_vec = np.array(query_res['embedding']).astype('float32').reshape(1, -1)
-    faiss.normalize_L2(query_vec)
+# ------------------------------------------------------------------
+# Estado da sessão para armazenar histórico
+# ------------------------------------------------------------------
+if 'history' not in st.session_state:
+    st.session_state.history = []
 
-    # 2. Busca no índice FAISS pelos vetores mais próximos (mais similares)
-    # scores: Distâncias, I: Índices dos vetores encontrados
-    scores, indices = index.search(query_vec, top_k)
-    
-    # 3. Retorna o texto original correspondente aos vetores mais próximos encontrados
-    resultados = []
-    for idx in indices[0]:
-        if idx != -1:  # Verifica se o índice é válido
-            resultados.append(textos_base[idx])
+# ------------------------------------------------------------------
+# Função para recuperar múltiplos contextos
+# ------------------------------------------------------------------
+def recuperar_contextos(query: str, top_k: int = 3) -> list[str]:
+    q_res = genai.embed_content(model=EMBED_MODEL, content=query)
+    q_vec = np.array(q_res['embedding'], dtype='float32').reshape(1, -1)
+    faiss.normalize_L2(q_vec)
+    scores, indices = index.search(q_vec, top_k)
+    return [textos_base[i] for i in indices[0] if i != -1]
 
-    return resultados
+# ------------------------------------------------------------------
+# Input do usuário
+# ------------------------------------------------------------------
+with st.form(key='input_form', clear_on_submit=True):
+    user_input = st.text_input("Faça sua pergunta:")
+    submit = st.form_submit_button("Enviar")
 
-def chatbot_com_ia():
-    print("Olá! Eu sou um chatbot com IA e RAG baseado em embeddings.")
-    print("Digite 'sair' para terminar a conversa.")
+# ------------------------------------------------------------------
+# Processa a mensagem quando o usuário envia
+# ------------------------------------------------------------------
+if submit and user_input:
+    # Recupera contextos
+    contextos = recuperar_contextos(user_input, top_k=3)
+    if contextos:
+        separator = "\n\n---\n\n"
+        contexto_unido = separator.join(contextos)
+        prompt = (
+            "Com base estritamente no contexto fornecido, responda à pergunta do usuário.\n"
+            "Se a resposta não estiver clara no contexto, responda \"Não tenho informações sobre isso no meu conhecimento.\"\n\n"
+            f"Contextos:\n{contexto_unido}\n\n"
+            f"Pergunta: {user_input}"
+        )
+    else:
+        prompt = user_input
+    # Gera resposta
+    chat_response = LLM_MODEL.generate_content(prompt).text
+    # Adiciona ao histórico
+    st.session_state.history.append(("Você", user_input))
+    st.session_state.history.append(("Chatbot", chat_response))
 
-    while True:
-        entrada_usuario = input("\n> Você: ")
-
-        if entrada_usuario.lower() == 'sair':
-            print("Chatbot IA: Até a próxima!")
-            break
-
-        if entrada_usuario:
-            contextos = recuperar_contexto_com_embedding(entrada_usuario, indice_faiss, embedding_model, textos_originais)
-            
-            prompt_final = entrada_usuario
-
-            if contextos:
-                print("--- [Contexto recuperado por similaridade semântica. Usando RAG] ---")
-                contexto_unido = "\n\n---\n\n".join(contextos)
-
-                prompt_final = (
-                    f"Com base estritamente no contexto fornecido, responda à pergunta do usuário.\n"
-                    f"Se a resposta não estiver clara no contexto, diga 'Não tenho informações sobre isso no meu conhecimento'.\n\n"
-                    f"Contextos: '{contexto_unido}'\n\n"
-                    f"Pergunta: '{entrada_usuario}'"
-                )
-
-            try:
-                response = llm_model.generate_content(prompt_final)
-                print(f"Chatbot IA: {response.text}")
-            except Exception as e:
-                print(f"Chatbot IA: Desculpe, ocorreu um erro: {e}")
-
-if __name__ == "__main__":
-    chatbot_com_ia()
+# ------------------------------------------------------------------
+# Exibe histórico de chat
+# ------------------------------------------------------------------
+for speaker, msg in st.session_state.history:
+    if speaker == "Você":
+        st.markdown(f"**Você:** {msg}")
+    else:
+        st.markdown(f"**Chatbot:** {msg}")
