@@ -47,7 +47,6 @@ def configure_genai():
     return genai.GenerativeModel('gemini-1.5-flash')
 
 def split_text_into_chunks(text: str) -> list[str]:
-    """Divide um texto longo em pedaços menores (chunks) usando a quebra de linha."""
     parts = text.split("\n")
     # Remove espaços em branco e garante que chunks vazios não sejam incluídos
     chunks = [part.strip() for part in parts if part.strip()]
@@ -55,10 +54,6 @@ def split_text_into_chunks(text: str) -> list[str]:
 
 @st.cache_resource(show_spinner="Analisando o documento e preparando a base de conhecimento...")
 def create_faiss_index():
-    """
-    Lê o documento de contexto, gera embeddings para os chunks de texto
-    e cria um índice FAISS para busca rápida de similaridade.
-    """
     context_path = os.getenv('CONTEXT_PATH')
 
     if not context_path or not os.path.exists(context_path):
@@ -88,14 +83,12 @@ def create_faiss_index():
     return index, text_chunks
 
 def retrieve_relevant_contexts(query: str, index: faiss.Index, text_chunks: list, top_k: int = 3) -> list[str]:
-    """Busca os chunks de texto mais relevantes para a pergunta do usuário no índice FAISS."""
     query_embedding_response = genai.embed_content(model=EMBEDDING_MODEL, content=query)
     query_vector = np.array(query_embedding_response['embedding'], dtype='float32').reshape(1, -1)
     faiss.normalize_L2(query_vector)
 
     _, indices = index.search(query_vector, top_k)
     
-    # Retorna os textos correspondentes, ignorando resultados inválidos (-1)
     return [text_chunks[i] for i in indices[0] if i != -1]
 
 def generate_response_with_llm(prompt: str, llm_model) -> str:
@@ -135,14 +128,11 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Captura a entrada do usuário
 if user_input := st.chat_input("Qual é a sua dúvida?"):
-    # Adiciona e exibe a mensagem do usuário
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # Processa a resposta do assistente
     with st.chat_message("assistant"):
         with st.spinner("Pensando..."):
             # 1. Recupera contextos relevantes
@@ -161,6 +151,5 @@ if user_input := st.chat_input("Qual é a sua dúvida?"):
             # 4. Exibe a resposta com efeito de digitação
             simulate_typing_effect(response_text)
             
-    # 5. Adiciona a resposta do assistente ao histórico
     st.session_state.messages.append({"role": "assistant", "content": response_text})
 
