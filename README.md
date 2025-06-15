@@ -22,7 +22,7 @@ Siga os passos abaixo para configurar e executar o projeto em sua máquina local
 
 **1. Clone o repositório (ou baixe os arquivos):**
 ```bash
-git clone [https://github.com/LucaKeb/PythonChatRAG.git]
+git clone https://github.com/LucaKeb/PythonChatRAG.git
 cd seu-repositorio
 ```
 
@@ -50,24 +50,24 @@ Crie um arquivo .env na raiz do projeto e adicione as seguintes informações:
 GENAI_API_KEY="SUA_API_KEY_AQUI"
 
 # Caminho para o arquivo de texto com a base de conhecimento
-CONTEXT_PATH="documentos.txt"
+CONTEXT_PATH="documento.txt"
 ```
 ▶️ Como Executar
 
 Com o ambiente virtual ativado e os arquivos de configuração criados, execute o seguinte comando no seu terminal:
-
-streamlit run seu_arquivo_principal.py
-
-Substitua seu_arquivo_principal.py pelo nome do seu script Python (ex: app.py ou usingEmbedding_py_revised.py).
-
+```bash
+streamlit run main.py
+```
 A aplicação será aberta automaticamente no seu navegador padrão.
-📁 Estrutura do Projeto
 
+**Estrutura do Projeto**
+```bash
 .
 ├── .venv/                  # Ambiente virtual
-├── seu_arquivo_principal.py  # Código principal da aplicação Streamlit
+├── main.py                 # Código principal da aplicação Streamlit
 ├── documentos.txt          # Base de conhecimento do chatbot
 ├── .env                    # Arquivo com as variáveis de ambiente (API Key, etc.)
 ├── requirements.txt        # Lista de dependências Python
 └── README.md               # Esta documentação
+```
 
